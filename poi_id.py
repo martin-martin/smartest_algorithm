@@ -164,7 +164,70 @@ my_dataset = median_dataset
 ### Task 4: Try a variety of classifiers
 ###
 
-def test_classifier(classifier_obj, data):
+def get_CM_nums(true_labels, predictions, CM_type):
+    """Calculates the number of elements in the different cells of a confusion matrix.
+
+    Takes as input the true labels and the predictions, both as lists.
+    Further a specification of the metric wanted as an abbreviated string:
+    'TP' for True Positives, 'FP' for False Positives
+    'TN' for True Negatives, 'FN' for False Negatives
+    Returns the amount of the specified metric.
+    """
+    import numpy as np
+
+    if CM_type == "TP" or CM_type == "TN":
+        if CM_type == "TP":
+            CM_type = 1
+        elif CM_type == "TN":
+            CM_type = 0
+        cpp = [1 for j in zip(true_labels, predictions) if j[0] == j[1] and j[1] == CM_type]
+    elif CM_type == "FP" or CM_type == "FN":
+        if CM_type == "FP":
+            CM_type = 1
+        elif CM_type == "FN":
+            CM_type = 0
+        cpp = [1 for j in zip(true_labels, predictions) if j[0] != j[1] and j[1] == CM_type]
+    else:
+        print "error, please enter TP, TN, FP, or FN."
+    num_cpp = np.sum(cpp)
+    return int(num_cpp)
+
+def construct_CM(true_labels, predictions):
+    """Wrapper function to calculate the confusion matrix and returns a formatted string.
+
+    Takes as input the true labels and the predictions, both as lists.
+    Calls get_CM_nums() with all possible inputs (TP, FP, TN, FN)
+    Returns a formatted string representing the confusion martrix that is easy to read.
+    """
+    num_TP = get_CM_nums(true_labels, predictions, "TP")
+    num_TN = get_CM_nums(true_labels, predictions, "TN")
+    num_FP = get_CM_nums(true_labels, predictions, "FP")
+    num_FN = get_CM_nums(true_labels, predictions, "FN")
+
+    return """confusion matrix:
+              predicted class
+              _Yes_|__No_
+actual | Yes |  {0}  |  {3}
+class  | No  |  {2}  |  {1}""".format(num_TP, num_TN, num_FP, num_FN)
+
+def calculate_f1(true_labels, predictions):
+    """Calculates statistical metrics for the classifier's prediction.
+
+    Takes as input the true labels and the predictions, both as lists.
+    Returns a string containing the scores for precision recall and the f1-score.
+    """
+    from sklearn.metrics import precision_score
+    from sklearn.metrics import recall_score
+    from sklearn.metrics import f1_score
+
+    precision = precision_score(true_labels, predictions)
+    recall = recall_score(true_labels, predictions)
+    f1_score =  f1_score(true_labels, predictions)
+    return """precision: {0}
+recall:    {1}
+f1_score:  {2}""".format(precision, recall, f1_score)
+
+def test_classifier(classifier_obj, data, scale=False):
     """Measures the time and accuracy of a given classifier.
 
     Takes as input a classifiert object (tuned or untuned)
@@ -175,9 +238,16 @@ def test_classifier(classifier_obj, data):
     """
     from time import time
     from sklearn.metrics import accuracy_score
+    from sklearn.preprocessing import MinMaxScaler
 
-    features_train = data[0]
-    features_test = data[1]
+    # scaling the data when the type of algorithm demands this
+    if scale == True:
+        scaler = MinMaxScaler()
+        features_train = scaler.fit_transform(data[0])
+        features_test = scaler.transform(data[1])
+    else:
+        features_train = data[0]
+        features_test = data[1]
     labels_train = data[2]
     labels_test = data[3]
 
@@ -193,6 +263,9 @@ def test_classifier(classifier_obj, data):
 
     acc = accuracy_score(labels_test, pred)
     print "accuracy:", acc
+
+    print construct_CM(labels_test, pred)
+    print calculate_f1(labels_test, pred)
 
 def test_a_lot(training_test_list):
     from sklearn.naive_bayes import GaussianNB
@@ -213,13 +286,13 @@ def test_a_lot(training_test_list):
     # 'rbf' is the default kernel used
     print "# with 'rbf' kernel"
     clf = SVC()
-    test_classifier(clf, training_test_list)
+    test_classifier(clf, training_test_list, scale=True)
     print '\n'
 
     # 'sigmoid'
     print "# with 'sigmoid' kernel"
     clf = SVC(kernel="sigmoid")
-    test_classifier(clf, training_test_list)
+    test_classifier(clf, training_test_list, scale=True)
 
 
     ### Decision Trees
@@ -253,13 +326,13 @@ def test_a_lot(training_test_list):
     # 'n_neighbors' defaUlt is 5
     print "# with k = 5"
     neigh = KNeighborsClassifier()
-    test_classifier(neigh, training_test_list)
+    test_classifier(neigh, training_test_list, scale=True)
     print '\n'
 
     # 1
     print "# with k = 1"
     neigh = KNeighborsClassifier(n_neighbors=1)
-    test_classifier(neigh, training_test_list)
+    test_classifier(neigh, training_test_list, scale=True)
 
 # calling the wrapper function to measure the different accuracies
 test_a_lot(no_na_list)

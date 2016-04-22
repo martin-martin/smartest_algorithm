@@ -65,6 +65,13 @@ When analyzing my features for outliers, I identified one called `TOTAL` in the 
 
 I had a little trouble here when trying to find the `max()` value of the columns I had plotted. My code only returned `NaN` as the max. After a while I figured that this is because the `'NaN'` values were actually **strings**, not `None` type. So I went ahead to transform them into actual `NaN`, to finally find and remove the row containing the outlier.
 
+## Validation
+### Precision
+Precision = TP / FP + TP
+
+### Recall
+Recall =  TP / FN + TP
+
 
 ## Discussion
 ### Replacing NaN with the median
@@ -87,3 +94,4 @@ The resulting accuracy of some of the classifiers is very high when using the da
 - http://stackoverflow.com/questions/18837607/remove-multiple-items-from-list-in-python
 - http://stackoverflow.com/questions/18172851/deleting-dataframe-row-in-pandas-based-on-column-value
 - http://stackoverflow.com/questions/17071871/select-rows-from-a-dataframe-based-on-values-in-a-column-in-pandas
+- - http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.dropna.html
