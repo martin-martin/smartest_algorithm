@@ -66,6 +66,10 @@ When analyzing my features for outliers, I identified one called `TOTAL` in the 
 I had a little trouble here when trying to find the `max()` value of the columns I had plotted. My code only returned `NaN` as the max. After a while I figured that this is because the `'NaN'` values were actually **strings**, not `None` type. So I went ahead to transform them into actual `NaN`, to finally find and remove the row containing the outlier.
 
 ## Validation
+Which of the two am I gonna favor? What does each or the other mean exactly?
+High **precision** means that the people I identify as POI are actually POIs, however I might not detect some of them.
+High **recall** means that I'm very likely to find all of the POIs, however I might also flag some innocent people falsely as POIs.
+
 ### Precision
 Precision = TP / FP + TP
 
