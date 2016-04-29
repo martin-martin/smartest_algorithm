@@ -1,3 +1,7 @@
+# IMPORTANT FOR REVIEWER:
+# for the full description of my work: https://github.com/martin-martin/smartest_algorithm/blob/master/ML_report_Enron.md
+# for the full code in .ipynb: https://github.com/martin-martin/smartest_algorithm/blob/master/enron.ipynb
+
 #!/usr/bin/python
 
 import sys
