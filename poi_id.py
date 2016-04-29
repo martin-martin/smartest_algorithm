@@ -3,6 +3,7 @@
 import sys
 import pickle
 import pprint
+import numpy as np
 sys.path.append("../tools/")
 
 from feature_format import featureFormat, targetFeatureSplit
@@ -22,63 +23,6 @@ with open("final_project_dataset.pkl", "r") as data_file:
 ### 1 - SELECTING FEATURES
 ###
 
-# a dict with the basic structure of the data, to keep count of occurences
-count_dict = {'bonus': 0,
- 'deferral_payments': 0,
- 'deferred_income': 0,
- 'director_fees': 0,
- 'email_address': 0,
- 'exercised_stock_options': 0,
- 'expenses': 0,
- 'from_messages': 0,
- 'from_poi_to_this_person': 0,
- 'from_this_person_to_poi': 0,
- 'loan_advances': 0,
- 'long_term_incentive': 0,
- 'other': 0,
- 'poi': 0,
- 'restricted_stock': 0,
- 'restricted_stock_deferred': 0,
- 'salary': 0,
- 'shared_receipt_with_poi': 0,
- 'to_messages': 0,
- 'total_payments': 0,
- 'total_stock_value': 0}
-# to see which features are present for many people, i count
-for person, p_dict in data_dict.items():
-    for key, value in p_dict.items():
-        if value != "NaN":
-            count_dict[key] += 1
-# for better comparison i will use the percentage of total
-amount_people = len(data_dict)
-perc_dict = {}
-for key, value in count_dict.items():
-    perc_dict[key] = round((value * 100.0) / amount_people, 2)
-#pprint.pprint(perc_dict)
-# filtering for the more common features, with a treshhold of 50%
-common_feature_list = []
-for key, value in perc_dict.items():
-    if value >= 50:
-        common_feature_list.append(key)
-
-# removing features I don't want to investigate (for justification
-# see the ML_report_Enron file)
-remove_list = ['to_messages', 'exercised_stock_options', 'email_address',
-            'total_stock_value', 'expenses', 'from_messages', 'other', 'restricted_stock']
-features_list = [feature for index, feature in enumerate(common_feature_list) if feature not in remove_list]
-# ordering 'poi' to index = 0
-features_list = features_list[4:] + features_list[:4]
-#pprint.pprint(features_list)
-"""
-MY FEATURES:
-['poi',
- 'shared_receipt_with_poi',
- 'from_poi_to_this_person',
- 'salary',
- 'total_payments',
- 'bonus',
- 'from_this_person_to_poi']
- """
 
 ###
 ### Task 2: Remove outliers
@@ -104,6 +48,10 @@ enron_df.replace(['NaN'], [None], inplace=True)
 outlier = enron_df['salary'].max()
 enron_df = enron_df[enron_df.salary != outlier]
 
+# removing the bogus company entry
+agency = "THE TRAVEL AGENCY IN THE PARK"
+enron_df = enron_df.drop([agency])
+
 
 ###
 ### Task 3: Create a new feature
@@ -122,42 +70,34 @@ def email_perc(row):
     return ratio
 
 enron_df["sent_received_ratio"] = enron_df.apply(lambda row: email_perc(row), axis=1)
-# adding feature to features_list
-features_list.append("sent_received_ratio")
+# feature is already added to features_list
 
 
 ###
 ### TRANSFORMATION
 ###
 
-# two adapted datasets accounting for NaNs
+# dropping rows containing NaNs
 enron_no_na = enron_df.dropna()
-enron_median = enron_df.fillna(enron_df.median())
 # reformat the pandas df to a dict, for further processing with the lesson code
 no_na_dataset = enron_no_na.to_dict(orient='index')
-median_dataset = enron_median.to_dict(orient='index')
-
 
 # creating a dataset without NaN values (removing the rows that contain NaN)
 no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
 no_na_labels, no_na_features = targetFeatureSplit(no_na_data)
 
-# creating a dataset with NaN replaced by the median
-median_data = featureFormat(median_dataset, features_list, sort_keys = True)
-median_labels, median_features = targetFeatureSplit(median_data)
-
 from sklearn.cross_validation import train_test_split
 # features filtered, NaN values removed
-no_na_features_train, no_na_features_test, no_na_labels_train, no_na_labels_test = train_test_split(no_na_features, no_na_labels, test_size=0.3, random_state=42)
-# features filtered, NaN replaced with the median
-median_features_train, median_features_test, median_labels_train, median_labels_test = train_test_split(median_features, median_labels, test_size=0.3, random_state=42)
+no_na_features_train, no_na_features_test, no_na_labels_train, no_na_labels_test = train_test_split(no_na_features,
+                                                                                                    no_na_labels,
+                                                                                                    test_size=0.3,
+                                                                                                    random_state=42)
 
-# creating lists:
+# creating a list for testing:
 no_na_list = [no_na_features_train, no_na_features_test, no_na_labels_train, no_na_labels_test]
-median_list = [median_features_train, median_features_test, median_labels_train, median_labels_test]
 
 # final dataset-choice extra variable for testing compatibility
-my_dataset = median_dataset
+my_dataset = no_na_dataset
 
 
 ###
@@ -175,22 +115,30 @@ def get_CM_nums(true_labels, predictions, CM_type):
     """
     import numpy as np
 
-    if CM_type == "TP" or CM_type == "TN":
-        if CM_type == "TP":
-            CM_type = 1
-        elif CM_type == "TN":
-            CM_type = 0
-        cpp = [1 for j in zip(true_labels, predictions) if j[0] == j[1] and j[1] == CM_type]
-    elif CM_type == "FP" or CM_type == "FN":
-        if CM_type == "FP":
-            CM_type = 1
-        elif CM_type == "FN":
-            CM_type = 0
-        cpp = [1 for j in zip(true_labels, predictions) if j[0] != j[1] and j[1] == CM_type]
+    def error():
+        print "Error: please enter 'TP', 'TN', 'FP', or 'FN'."
+
+    def binary(CM_string):
+        """Encodes Positives with '1' and Negatives with '0'."""
+        if CM_string.endswith("P"):
+            return 1
+        elif CM_string.endswith("N"):
+            return 0
+        else:
+            return error()
+
+    if len(CM_type) == 2:
+        CM_encode = binary(CM_type)
+        if CM_type.startswith("T"):
+            cpp = [1 for j in zip(true_labels, predictions) if j[0] == j[1] and j[1] == CM_encode]
+        elif CM_type.startswith("F"):
+            cpp = [1 for j in zip(true_labels, predictions) if j[0] != j[1] and j[1] == CM_encode]
+        else:
+            return error()
+        num_cpp = np.sum(cpp)
+        return int(num_cpp)
     else:
-        print "error, please enter TP, TN, FP, or FN."
-    num_cpp = np.sum(cpp)
-    return int(num_cpp)
+        return error()
 
 def construct_CM(true_labels, predictions):
     """Wrapper function to calculate the confusion matrix and returns a formatted string.
@@ -251,23 +199,22 @@ def test_classifier(classifier_obj, data, scale=False):
     labels_train = data[2]
     labels_test = data[3]
 
-    # taking the time the algorithm runs
-    t0 = time()
     classifier_obj.fit(features_train, labels_train)
-    print "training time:", round(time()-t0, 3), "s"
-
-    # taking time for prediction
-    t1 = time()
     pred = classifier_obj.predict(features_test)
-    print "predicting time:", round(time()-t1, 3), "s"
-
-    acc = accuracy_score(labels_test, pred)
-    print "accuracy:", acc
 
     print construct_CM(labels_test, pred)
     print calculate_f1(labels_test, pred)
 
+
 def test_a_lot(training_test_list):
+    """Wrapper function that calculates performance results for different classifiers and prints the results.
+
+    Takes as input a list of test and training data in the following form:
+    'training_test_list = [features_train, features_test, labels_train, labels_test]'
+    Calls the functions test_classifier() on Naive Bayes, SVM (with different settings),
+    Decision Trees (with different settings), ans K-nearest neighbors (with different settings).
+    Prints all results in formatted output.
+    """
     from sklearn.naive_bayes import GaussianNB
     from sklearn.svm import SVC
     from sklearn.tree import DecisionTreeClassifier
@@ -315,28 +262,37 @@ def test_a_lot(training_test_list):
     test_classifier(clf, training_test_list)
     print '\n'
 
-    # 1
-    print "# using 1 feature"
-    clf = DecisionTreeClassifier(max_features=1)
-    test_classifier(clf, training_test_list)
+    # running the Decision Tree for all possible feature amounts
+    for i in range(1,6):
+        print "# using {0} feature(s)".format(i)
+        clf = DecisionTreeClassifier(max_features=i)
+        test_classifier(clf, training_test_list)
+        print '\n'
 
 
     ### K-nearest Neighbours
     print "\n\n\n### K-NEAREST NEIGHBORS ###"
-    # 'n_neighbors' defaUlt is 5
+    # 'n_neighbors' default is 5
+    print "# with k = 6 (all features)"
+    neigh = KNeighborsClassifier(n_neighbors=6)
+    test_classifier(neigh, training_test_list, scale=True)
+    print '\n'
+
+    # 'n_neighbors' default is 5
     print "# with k = 5"
     neigh = KNeighborsClassifier()
     test_classifier(neigh, training_test_list, scale=True)
     print '\n'
 
-    # 1
-    print "# with k = 1"
-    neigh = KNeighborsClassifier(n_neighbors=1)
-    test_classifier(neigh, training_test_list, scale=True)
+    # running kNN for some different amounts of neighbors
+    for i in range(1,5):
+        print "# with k =", i
+        neigh = KNeighborsClassifier(n_neighbors=i)
+        test_classifier(neigh, training_test_list, scale=True)
+        print '\n'
 
-# calling the wrapper function to measure the different accuracies
+# testing a variety of classifiers
 test_a_lot(no_na_list)
-test_a_lot(median_list)
 
 ### Please name your classifier clf for easy export below.
 ### Note that if you want to do PCA or other multi-stage operations,
@@ -344,20 +300,48 @@ test_a_lot(median_list)
 ### http://scikit-learn.org/stable/modules/pipeline.html
 
 # Provided to give you a starting point. Try a variety of classifiers.
-from sklearn.svm import SVC
-clf = SVC()
-clf.fit(median_features_train, median_labels_train)
-pred = clf.predict(median_features_test)
+
+def test_feature_combinations(features_list):
+    from feature_format import featureFormat, targetFeatureSplit
+    from sklearn.cross_validation import train_test_split
+    from sklearn.tree import DecisionTreeClassifier
+
+    ### Extract features and labels from datasets for local testing
+    no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
+    labels, features = targetFeatureSplit(no_na_data)
+
+    # new features filtered, NaN values removed
+    features_train, features_test, labels_train, labels_test = train_test_split(features,
+                                                                                labels,
+                                                                                test_size=0.3,
+                                                                                random_state=42)
+
+    clf = DecisionTreeClassifier()
+
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+
+    print construct_CM(labels_test, pred)
+    print calculate_f1(labels_test, pred)
+
+    return clf, pred
+
+
+features_list = ['poi',
+            'shared_receipt_with_poi',
+            'total_payments',
+            'from_this_person_to_poi',
+            'sent_received_ratio',
+            'bonus']
+
+clf, pred = test_feature_combinations(features_list)
 
 # statistics
-poi_count = 0
-for p in pred:
-    if p == 1.:
-        poi_count += 1
+poi_count = np.sum(no_na_labels)
 
-print poi_count
+print "POIs", poi_count
 print len(pred)
-print median_labels_test
+print no_na_labels_test
 
 ### Task 5: Tune your classifier to achieve better than .3 precision and recall
 ### using our testing script. Check the tester.py script in the final project
@@ -366,10 +350,46 @@ print median_labels_test
 ### stratified shuffle split cross validation. For more info:
 ### http://scikit-learn.org/stable/modules/generated/sklearn.cross_validation.StratifiedShuffleSplit.html
 
-# # Example starting point. Try investigating other evaluation techniques!
-# from sklearn.cross_validation import train_test_split
-# features_train, features_test, labels_train, labels_test = \
-#     train_test_split(features, labels, test_size=0.3, random_state=42)
+def get_most_important_features():
+    # creating the overfitted tree
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.metrics import accuracy_score
+
+    no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
+    labels, features = targetFeatureSplit(no_na_data)
+
+    # new features filtered, NaN values removed
+    features_train, features_test, labels_train, labels_test = train_test_split(features,
+                                                                                    labels,
+                                                                                    test_size=0.3,
+                                                                                    random_state=42)
+
+    clf = DecisionTreeClassifier()
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+    acc = accuracy_score(labels_test, pred)
+    print "overfitted accuracy", acc
+
+    # calculating feature importances
+    feat_imp = clf.feature_importances_
+    # print the most important (common) ones
+    print feat_imp
+    for index, feature in enumerate(feat_imp):
+        if feature > 0.2:
+            print "spot:", index, ":", features_list[index+1], " | value:", feature
+
+# running the function 10 times to see which features prevail
+for i in range(10):
+    get_most_important_features()
+    print "\n"
+
+# truncated features_list gleaned from the results
+features_list = ['poi',
+            'shared_receipt_with_poi',
+            'total_payments',
+            'from_this_person_to_poi',
+            'bonus',
+            'sent_received_ratio']
 
 ### Task 6: Dump your classifier, dataset, and features_list so anyone can
 ### check your results. You do not need to change anything below, but make sure
