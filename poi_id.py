@@ -1,5 +1,5 @@
 # IMPORTANT FOR REVIEWER:
-# for the full description of my work: https://github.com/martin-martin/smartest_algorithm/blob/master/ML_report_Enron.md
+# for the full description of my work: https://github.com/martin-martin/smartest_algorithm/blob/master/Enron_report.md
 # for the full code in .ipynb: https://github.com/martin-martin/smartest_algorithm/blob/master/ml_enron.ipynb
 
 #!/usr/bin/python
