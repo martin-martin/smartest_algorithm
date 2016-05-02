@@ -1,112 +1,292 @@
 # IMPORTANT FOR REVIEWER:
 # for the full description of my work: https://github.com/martin-martin/smartest_algorithm/blob/master/ML_report_Enron.md
-# for the full code in .ipynb: https://github.com/martin-martin/smartest_algorithm/blob/master/enron.ipynb
+# for the full code in .ipynb: https://github.com/martin-martin/smartest_algorithm/blob/master/ml_enron.ipynb
 
 #!/usr/bin/python
 
+##########################
+###### PREPARATIONS ######
+##########################
+
+# importing libraries
 import sys
 import pickle
 import pprint
 import numpy as np
+import pandas as pd
 sys.path.append("../tools/")
 
 from feature_format import featureFormat, targetFeatureSplit
 from tester import dump_classifier_and_data
 
-### Task 1: Select what features you'll use.
-### features_list is a list of strings, each of which is a feature name.
-### The first feature must be "poi".
-features_list = ['poi', 'salary', 'bonus', 'total_payments', 'shared_receipt_with_poi',
-                'from_poi_to_this_person', 'from_this_person_to_poi' ]
+from sklearn.cross_validation import train_test_split
+from sklearn.grid_search import GridSearchCV
+
+from matplotlib import pyplot as plt
 
 ### Load the dictionary containing the dataset
 with open("final_project_dataset.pkl", "r") as data_file:
     data_dict = pickle.load(data_file)
 
-###
-### 1 - SELECTING FEATURES
-###
-
-
-###
-### Task 2: Remove outliers
-###
-
 # preparing a pandas DF for easier access
-import pandas as pd
-enron_df = pd.DataFrame(data_dict).transpose()
+enron_df = pd.DataFrame(data_dict)
+# better suited in the other format
+enron_df = enron_df.transpose()
 
-# reducing the dataframe for better overview, removing the features
-# that I decided not to use
-for c in enron_df.columns:
-    if c not in features_list:
-        enron_df.drop(c, axis=1, inplace=True)
+# removing the email-address column because it has no predicitve power
+enron_df = enron_df.drop('email_address', 1)
 
-# the feature combination where I detected one erroneous outlier
-from matplotlib import pyplot as plt
-plt.scatter(enron_df['bonus'], enron_df['salary'])
+# setting the initial features list
+features_list = list(enron_df.columns.values)
 
-# transforming the 'NaN' strings to 'None' values
+# quick statistical overview
+nr_poi = len(enron_df[enron_df.poi == 1])
+nr_non_poi = len(enron_df[enron_df.poi == 0])
+print "total number of data points:", len(enron_df)
+print "of which {0} are POI and {1} are non-POI.".format(nr_poi, nr_non_poi)
+
+
+#############################
+###### OUTLIER REMOVAL ######
+#############################
+
+# quick EDA plot shows a possible outlier
+plt.scatter(enron_df['bonus'], enron_df['total_payments'])
+
+# 'NaN' are encoded as string instead of nan - I change this to work with them easier
 enron_df.replace(['NaN'], [None], inplace=True)
-# removing the outlier
-outlier = enron_df['salary'].max()
-enron_df = enron_df[enron_df.salary != outlier]
 
-# removing the bogus company entry
+outlier = enron_df['bonus'].max()
+#print enron_df.loc[enron_df['bonus'] == outlier]
+# this shows that the entry is TOTAL, and can be removed
+enron_df = enron_df[enron_df.bonus != outlier]
+
+# quick plot displays the new distribution after removal
+plt.scatter(enron_df['bonus'], enron_df['total_payments'])
+
+# repeating the steps looking for other outliers
+outlier = enron_df.total_payments.max()
+#print enron_df.total_payments.loc[enron_df.total_payments == outlier]
+# shows that this outlier is valid and should remain in the dataset
+
+# looking for other outliers
+# (example plot; this was initially performed for more columns)
+plt.scatter(enron_df.shared_receipt_with_poi, enron_df.total_payments)
+
+def display_outlier(column_name):
+    """prints the max value in a df column of the name passed as arg."""
+    outlier = enron_df[column_name].max()
+    print enron_df.loc[enron_df[column_name] == outlier]
+
+#display_outlier('shared_receipt_with_poi')
+# this shows that the datapoint is a valid person
+# in this .py file not all outlier investigations are displayed
+
+# shows that this manually found datapoint is not a person, therefore I remove it
+#print enron_df.loc["THE TRAVEL AGENCY IN THE PARK"]
 agency = "THE TRAVEL AGENCY IN THE PARK"
 enron_df = enron_df.drop([agency])
 
 
-###
-### Task 3: Create a new feature
-###
+#########################
+###### NEW FEATURE ######
+#########################
 
 def email_perc(row):
-    """Calculates the ratio of Emails sent / received with poi involved for one row."""
-    emails_sent_to_poi = row['from_this_person_to_poi']
-    emails_received_from_poi = row['from_poi_to_this_person']
+    """calculates the ratio of emails sent to a POI vs. emails received from a POI.
+
+    takes as input one row of a dataframe
+    returns the ratio as a floating point number.
+    """
+    one_way = row['from_this_person_to_poi']
+    the_other = row['from_poi_to_this_person']
 
     ratio = 0
-    # removing rows that have the value 0 in either
-    # to avoid "DivisionByZero" Errors
-    if emails_sent_to_poi != 0 and emails_received_from_poi != 0:
-        ratio = float(emails_sent_to_poi) / emails_received_from_poi
+    # calculating the ratio only if there is no 0 value involved
+    if one_way != 0 and the_other != 0:
+        ratio = float(one_way) / the_other
     return ratio
 
+# generating the feature of interest
 enron_df["sent_received_ratio"] = enron_df.apply(lambda row: email_perc(row), axis=1)
-# feature is already added to features_list
+
+# visualizing the new feature, while accounting for the POI and non-POI in the dataset
+# POI are displayed as red circles, non-POI as blue circles
+plt.scatter(enron_df.bonus, enron_df.sent_received_ratio, c=enron_df.poi)
+
+# updating the features list with the new feature
+# and moving 'poi' to the 0th place
+features_list.append("sent_received_ratio")
+features_list = features_list[12:] + features_list[:12]
 
 
-###
-### TRANSFORMATION
-###
+##########################
+###### OVERSAMPLING ######
+##########################
 
-# dropping rows containing NaNs
-enron_no_na = enron_df.dropna()
-# reformat the pandas df to a dict, for further processing with the lesson code
-no_na_dataset = enron_no_na.to_dict(orient='index')
+# the ratio that non-POI are more frequent in the dataset than POI
+ratio_poi = nr_non_poi / nr_poi
+print "non-POI are {0} times more frequent than POI".format(ratio_poi)
 
-# creating a dataset without NaN values (removing the rows that contain NaN)
-no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
-no_na_labels, no_na_features = targetFeatureSplit(no_na_data)
+print 'initial amount of rows:', len(enron_df)
+# gleaning the underrepresented sample
+is_poi = enron_df['poi'] == 1
+oversample_row = enron_df[is_poi]
+# adding copies of the POI to the dataset (=oversampling)
+# to reduce the imbalance of the dataset
+# I chose to double the POI instances
+enron_df = enron_df.append([oversample_row] * 2, ignore_index=True)
+print 'oversampled amount of rows:', len(enron_df)
 
-from sklearn.cross_validation import train_test_split
-# features filtered, NaN values removed
-no_na_features_train, no_na_features_test, no_na_labels_train, no_na_labels_test = train_test_split(no_na_features,
-                                                                                                    no_na_labels,
-                                                                                                    test_size=0.3,
-                                                                                                    random_state=42)
-
-# creating a list for testing:
-no_na_list = [no_na_features_train, no_na_features_test, no_na_labels_train, no_na_labels_test]
-
-# final dataset-choice extra variable for testing compatibility
-my_dataset = no_na_dataset
+# shuffle the rows so that the cloned POIs are evenly spread throughout the
+# dataset. this is important for the split of data in training and testing data
+enron_df_os = enron_df.reindex(np.random.permutation(enron_df.index))
+# uncommenting shows that the final entries are not all POI after shuffling
+#enron_df_os.tail()
 
 
-###
-### Task 4: Try a variety of classifiers
-###
+############################
+###### MORE WRANGLING ######
+############################
+
+# the classifiers cannot handle NaN values, therefore they need to be either
+# removed or imputed. due to the small size of the dataset I chose
+# to impute the median values to the NaN
+enron_median = enron_df.fillna(enron_df.median().to_dict())
+
+# translating back to a dict for easier work with the lesson code
+my_dataset = enron_median.to_dict(orient='index')
+
+
+###############################
+###### FEATURE SELECTION ######
+###############################
+
+# I'll be using an overfit Decision Tree to calculate the feature importances
+def get_most_important_features(dataset, features_list):
+    """Calculates the feature importances.
+
+    Takes as input a dataset and a list of features.
+    Creates an overfit Decision Tree and calculates the feature importances.
+    Returns a list with the feature importances.
+    """
+    # creating an overfitted decision tree
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.metrics import accuracy_score
+
+    data = featureFormat(dataset, features_list, sort_keys = True)
+    labels, features = targetFeatureSplit(data)
+
+    # new features filtered, NaN values removed
+    features_train, features_test, labels_train, labels_test = train_test_split(features,
+                                                                                    labels,
+                                                                                    test_size=0.3,
+                                                                                    random_state=42)
+
+    clf = DecisionTreeClassifier()
+    clf.fit(features_train, labels_train)
+    pred = clf.predict(features_test)
+    acc = accuracy_score(labels_test, pred)
+    # uncomment to print the accuracy score
+    #print "overfitted accuracy", acc
+
+    # calculating feature importances
+    feat_imp = clf.feature_importances_
+    # uncomment to print the most important (common) ones
+    #print feat_imp
+    #for index, feature in enumerate(feat_imp):
+    #    if feature > 0.2:
+    #        print "spot:", index, ":", features_list[index+1], " | value:", feature
+    return feat_imp
+
+# collecting the values to calculate the average feature importances
+feat_imp_list_list = []
+for i in range(100):
+    feat_imp = get_most_important_features(my_dataset, features_list)
+    feat_imp_list_list.append(feat_imp)
+
+# creating a features list while excluding 'poi'
+feature_compare = features_list[1:]
+# setting up a dict with an empty list for each feature
+feat_imp_dict = {}
+for f in feature_compare:
+    feat_imp_dict[f] = []
+# adding all 100 feature importance values to the respective list
+for array in feat_imp_list_list:
+    for index, number in enumerate(array):
+        feat_imp_dict[feature_compare[index]].append(number)
+
+top_feat_imp = {}
+# I chose a threshold of 0.1, because when higher, only one feature was selected
+threshold = 0.1
+# calc. the mean of all runs and store the ones passing the threshold in a dict
+for key, value in feat_imp_dict.items():
+    mean = np.asarray(value).mean()
+    print key, ":", mean
+    if mean > threshold:
+        top_feat_imp[key] = mean
+#print top_feat_imp
+
+# updating the features list with the top performers (those I will actually use)
+# adding 'poi' back at the 0th spot
+features_list = ['poi'] + top_feat_imp.keys()
+
+
+#################################
+###### TESTING CLASSIFIERS ######
+#################################
+
+# preparing the data into training and testing sets
+data = featureFormat(my_dataset, features_list, sort_keys = True)
+labels, features = targetFeatureSplit(data)
+# features after imputing median values
+features_train, features_test, labels_train, labels_test = train_test_split(features,
+                                                                            labels,
+                                                                            test_size=0.3,
+                                                                            random_state=42)
+# combining the training and testing variables into a list for easier input for the function I wrote
+full_feat_list = [features_train, features_test, labels_train, labels_test]
+
+def test_classifier(classifier_obj, data, scale=False):
+    """Measures the time and accuracy of a given classifier.
+
+    Takes as input a classifiert object (tuned or untuned)
+    and a list containing the training and testing features and labels
+    in this form:
+    data = [features_train, features_test, labels_train, labels_test]
+    Prints processing time and overall accuracy score.
+    """
+    from time import time
+    from sklearn.metrics import accuracy_score
+    from sklearn.preprocessing import MinMaxScaler
+
+    # scaling the data when the type of algorithm demands this
+    if scale == True:
+        scaler = MinMaxScaler()
+        features_train = scaler.fit_transform(data[0])
+        features_test = scaler.transform(data[1])
+    else:
+        features_train = data[0]
+        features_test = data[1]
+    labels_train = data[2]
+    labels_test = data[3]
+
+    ### uncomment for information about time performance and accuracy ###
+    ## taking the time the algorithm runs
+    #t0 = time()
+    classifier_obj.fit(features_train, labels_train)
+    #print "training time:", round(time()-t0, 3), "s"
+
+    ## taking time for prediction
+    #t1 = time()
+    pred = classifier_obj.predict(features_test)
+    #print "predicting time:", round(time()-t1, 3), "s"
+
+    #acc = accuracy_score(labels_test, pred)
+    #print "accuracy:", acc
+
+    print construct_CM(labels_test, pred)
+    print calculate_f1(labels_test, pred)
 
 def get_CM_nums(true_labels, predictions, CM_type):
     """Calculates the number of elements in the different cells of a confusion matrix.
@@ -119,30 +299,22 @@ def get_CM_nums(true_labels, predictions, CM_type):
     """
     import numpy as np
 
-    def error():
-        print "Error: please enter 'TP', 'TN', 'FP', or 'FN'."
-
-    def binary(CM_string):
-        """Encodes Positives with '1' and Negatives with '0'."""
-        if CM_string.endswith("P"):
-            return 1
-        elif CM_string.endswith("N"):
-            return 0
-        else:
-            return error()
-
-    if len(CM_type) == 2:
-        CM_encode = binary(CM_type)
-        if CM_type.startswith("T"):
-            cpp = [1 for j in zip(true_labels, predictions) if j[0] == j[1] and j[1] == CM_encode]
-        elif CM_type.startswith("F"):
-            cpp = [1 for j in zip(true_labels, predictions) if j[0] != j[1] and j[1] == CM_encode]
-        else:
-            return error()
-        num_cpp = np.sum(cpp)
-        return int(num_cpp)
+    if CM_type == "TP" or CM_type == "TN":
+        if CM_type == "TP":
+            CM_type = 1
+        elif CM_type == "TN":
+            CM_type = 0
+        cpp = [1 for j in zip(true_labels, predictions) if j[0] == j[1] and j[1] == CM_type]
+    elif CM_type == "FP" or CM_type == "FN":
+        if CM_type == "FP":
+            CM_type = 1
+        elif CM_type == "FN":
+            CM_type = 0
+        cpp = [1 for j in zip(true_labels, predictions) if j[0] != j[1] and j[1] == CM_type]
     else:
-        return error()
+        print "error, please enter TP, TN, FP, or FN."
+    num_cpp = np.sum(cpp)
+    return int(num_cpp)
 
 def construct_CM(true_labels, predictions):
     """Wrapper function to calculate the confusion matrix and returns a formatted string.
@@ -179,44 +351,13 @@ def calculate_f1(true_labels, predictions):
 recall:    {1}
 f1_score:  {2}""".format(precision, recall, f1_score)
 
-def test_classifier(classifier_obj, data, scale=False):
-    """Measures the time and accuracy of a given classifier.
-
-    Takes as input a classifiert object (tuned or untuned)
-    and a list containing the training and testing features and labels
-    in this form:
-    data = [features_train, features_test, labels_train, labels_test]
-    Prints processing time and overall accuracy score.
-    """
-    from time import time
-    from sklearn.metrics import accuracy_score
-    from sklearn.preprocessing import MinMaxScaler
-
-    # scaling the data when the type of algorithm demands this
-    if scale == True:
-        scaler = MinMaxScaler()
-        features_train = scaler.fit_transform(data[0])
-        features_test = scaler.transform(data[1])
-    else:
-        features_train = data[0]
-        features_test = data[1]
-    labels_train = data[2]
-    labels_test = data[3]
-
-    classifier_obj.fit(features_train, labels_train)
-    pred = classifier_obj.predict(features_test)
-
-    print construct_CM(labels_test, pred)
-    print calculate_f1(labels_test, pred)
-
-
 def test_a_lot(training_test_list):
     """Wrapper function that calculates performance results for different classifiers and prints the results.
 
     Takes as input a list of test and training data in the following form:
     'training_test_list = [features_train, features_test, labels_train, labels_test]'
-    Calls the functions test_classifier() on Naive Bayes, SVM (with different settings),
-    Decision Trees (with different settings), ans K-nearest neighbors (with different settings).
+    Calls the functions test_classifier() on Naive Bayes, SVM, Decision Trees,
+    and K-nearest neighbors (each with the default settings).
     Prints all results in formatted output.
     """
     from sklearn.naive_bayes import GaussianNB
@@ -225,179 +366,85 @@ def test_a_lot(training_test_list):
     from sklearn.neighbors import KNeighborsClassifier
 
     print "PERFORMANCE RESULTS OF DIFFERENT CLASSIFIERS"
-
     ### Naive Bayes
-    print "\n\n\n### NAIVE BAYES ###"
+    print "\n\n### NAIVE BAYES ###"
     clf = GaussianNB()
     test_classifier(clf, training_test_list)
 
-
     ### Support Vector Machines
-    print "\n\n\n### SUPPORT VECTOR MACHINES ###"
-    # 'rbf' is the default kernel used
-    print "# with 'rbf' kernel"
+    print "\n\n### SUPPORT VECTOR MACHINES ###"
     clf = SVC()
     test_classifier(clf, training_test_list, scale=True)
-    print '\n'
-
-    # 'sigmoid'
-    print "# with 'sigmoid' kernel"
-    clf = SVC(kernel="sigmoid")
-    test_classifier(clf, training_test_list, scale=True)
-
 
     ### Decision Trees
-    print "\n\n\n### DECISION TREES ###"
-    # 'max_features' default is None = n_features
-    print "# using all features"
+    print "\n\n### DECISION TREES ###"
     clf = DecisionTreeClassifier()
     test_classifier(clf, training_test_list)
-    print '\n'
-
-    # 'sqrt'
-    print "# using the square root of the features"
-    clf = DecisionTreeClassifier(max_features="sqrt")
-    test_classifier(clf, training_test_list)
-    print '\n'
-
-    # 'log2'
-    print "# using the log2 of the features"
-    clf = DecisionTreeClassifier(max_features="log2")
-    test_classifier(clf, training_test_list)
-    print '\n'
-
-    # running the Decision Tree for all possible feature amounts
-    for i in range(1,6):
-        print "# using {0} feature(s)".format(i)
-        clf = DecisionTreeClassifier(max_features=i)
-        test_classifier(clf, training_test_list)
-        print '\n'
-
 
     ### K-nearest Neighbours
-    print "\n\n\n### K-NEAREST NEIGHBORS ###"
-    # 'n_neighbors' default is 5
-    print "# with k = 6 (all features)"
-    neigh = KNeighborsClassifier(n_neighbors=6)
-    test_classifier(neigh, training_test_list, scale=True)
-    print '\n'
-
-    # 'n_neighbors' default is 5
-    print "# with k = 5"
+    print "\n\n### K-NEAREST NEIGHBORS ###"
     neigh = KNeighborsClassifier()
     test_classifier(neigh, training_test_list, scale=True)
-    print '\n'
 
-    # running kNN for some different amounts of neighbors
-    for i in range(1,5):
-        print "# with k =", i
-        neigh = KNeighborsClassifier(n_neighbors=i)
-        test_classifier(neigh, training_test_list, scale=True)
-        print '\n'
-
-# testing a variety of classifiers
-test_a_lot(no_na_list)
-
-### Please name your classifier clf for easy export below.
-### Note that if you want to do PCA or other multi-stage operations,
-### you'll need to use Pipelines. For more info:
-### http://scikit-learn.org/stable/modules/pipeline.html
-
-# Provided to give you a starting point. Try a variety of classifiers.
-
-def test_feature_combinations(features_list):
-    from feature_format import featureFormat, targetFeatureSplit
-    from sklearn.cross_validation import train_test_split
-    from sklearn.tree import DecisionTreeClassifier
-
-    ### Extract features and labels from datasets for local testing
-    no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
-    labels, features = targetFeatureSplit(no_na_data)
-
-    # new features filtered, NaN values removed
-    features_train, features_test, labels_train, labels_test = train_test_split(features,
-                                                                                labels,
-                                                                                test_size=0.3,
-                                                                                random_state=42)
-
-    clf = DecisionTreeClassifier()
-
-    clf.fit(features_train, labels_train)
-    pred = clf.predict(features_test)
-
-    print construct_CM(labels_test, pred)
-    print calculate_f1(labels_test, pred)
-
-    return clf, pred
+# running the test suite
+test_a_lot(full_feat_list)
 
 
-features_list = ['poi',
-            'shared_receipt_with_poi',
-            'total_payments',
-            'from_this_person_to_poi',
-            'sent_received_ratio',
-            'bonus']
+################################
+###### TUNING CLASSIFIERS ######
+################################
 
-clf, pred = test_feature_combinations(features_list)
+# checking the best tuning setting for Decistion Trees
+from sklearn.tree import DecisionTreeClassifier
 
-# statistics
-poi_count = np.sum(no_na_labels)
+parameters = {'max_depth' : [None, 10, 5, 2],
+              'min_samples_split' : [2, 10, 5, 1],
+              'min_samples_leaf' : [1, 5, 2],
+              'min_weight_fraction_leaf' : [0, 0.25, 0.5]
+             }
 
-print "POIs", poi_count
-print len(pred)
-print no_na_labels_test
+dt = DecisionTreeClassifier()
+clf = GridSearchCV(dt, parameters)
+clf.fit(features_train, labels_train)
+print clf.best_params_
 
-### Task 5: Tune your classifier to achieve better than .3 precision and recall
-### using our testing script. Check the tester.py script in the final project
-### folder for details on the evaluation method, especially the test_classifier
-### function. Because of the small size of the dataset, the script uses
-### stratified shuffle split cross validation. For more info:
-### http://scikit-learn.org/stable/modules/generated/sklearn.cross_validation.StratifiedShuffleSplit.html
+print "tuned DECISION TREES"
+# min_samples_leaf=1 and max_depth=None are both default values
+clf = DecisionTreeClassifier(min_samples_split=1, min_weight_fraction_leaf=0.5)
+test_classifier(clf, full_feat_list)
 
-def get_most_important_features():
-    # creating the overfitted tree
-    from sklearn.tree import DecisionTreeClassifier
-    from sklearn.metrics import accuracy_score
 
-    no_na_data = featureFormat(no_na_dataset, features_list, sort_keys = True)
-    labels, features = targetFeatureSplit(no_na_data)
+# checking the best tuning setting for KNN
+from sklearn.neighbors import KNeighborsClassifier
 
-    # new features filtered, NaN values removed
-    features_train, features_test, labels_train, labels_test = train_test_split(features,
-                                                                                    labels,
-                                                                                    test_size=0.3,
-                                                                                    random_state=42)
+parameters = {'n_neighbors' : [5, 10, 3, 2],
+              'weights' : ['uniform', 'distance'],
+              'algorithm' : ['ball_tree', 'kd_tree', 'brute'],
+              'leaf_size' : [30, 10, 60, 100]
+             }
 
-    clf = DecisionTreeClassifier()
-    clf.fit(features_train, labels_train)
-    pred = clf.predict(features_test)
-    acc = accuracy_score(labels_test, pred)
-    print "overfitted accuracy", acc
+knn = KNeighborsClassifier()
+clf = GridSearchCV(knn, parameters)
+clf.fit(features_train, labels_train)
+print clf.best_params_
 
-    # calculating feature importances
-    feat_imp = clf.feature_importances_
-    # print the most important (common) ones
-    print feat_imp
-    for index, feature in enumerate(feat_imp):
-        if feature > 0.2:
-            print "spot:", index, ":", features_list[index+1], " | value:", feature
+print "tuned K-NEAREST NEIGHBORS"
+# leaf_size=30 is the default value
+clf = KNeighborsClassifier(n_neighbors=2, weights='distance', algorithm='ball_tree')
+test_classifier(clf, full_feat_list, scale=True)
 
-# running the function 10 times to see which features prevail
-for i in range(10):
-    get_most_important_features()
-    print "\n"
 
-# truncated features_list gleaned from the results
-features_list = ['poi',
-            'shared_receipt_with_poi',
-            'total_payments',
-            'from_this_person_to_poi',
-            'bonus',
-            'sent_received_ratio']
+##########################################
+###### FINAL CHOICE AND COMPUTATION ######
+##########################################
 
-### Task 6: Dump your classifier, dataset, and features_list so anyone can
-### check your results. You do not need to change anything below, but make sure
-### that the version of poi_id.py that you submit can be run on its own and
-### generates the necessary .pkl files for validating your results.
+clf = KNeighborsClassifier(n_neighbors=2, weights='distance', algorithm='ball_tree')
+clf.fit(features_train, labels_train)
+pred = clf.predict(features_test)
+
+
+#################################
+###### OUTPUT FOR CHECKING ######
+#################################
 
 dump_classifier_and_data(clf, my_dataset, features_list)
