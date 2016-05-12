@@ -8,6 +8,30 @@ Katie's enthusiasm is infectious, so I went ahead to learn a bit about the topic
 
 Here's to some more involvement through a different path.
 
+## Table of Contents
+1. [Introduction](#introduction)
+2. [Outlier Removal](#outlier-removal)
+3. [Dealing with an imbalanced dataset](#imbalanced-dataset)
+	- [overfitting](#overfitting)
+	- [class weights](#class-weights)
+4. [Features](#features)
+	- [A new feature](#new-feature)
+	- [Selecting features](#selecting-features)
+5. [Choice of Algorithm](#algorithm-choice)
+6. [Tuning the Classifier](#classifier-tuning)
+7. [Validation](#validation)
+8. [Evaluation Method](#evaluation)
+9. [Discussion](#discussion)
+	- [Handling missing values](#missing-values)
+		- [Removing all rows containing NaN](#removing)
+		- [Replacing NaN with the median](#median)
+		- [Replacing NaN with 0](#zero)
+10. [Algorithm Performance](#performance)
+11. [Resources](#resources)
+	- [Python](#python)
+	- [Machine Learning](#ml)
+
+<div id='introduction'/>
 ## Introduction
 Using Machine Learning techniques, I will try to analyze the two combined datasets to try to predict who of the people that are part of the dataset might be persons of interest (POI).
 I define a POI to be someone who might be worth further investigation, because he or she might be more closely involved in the Enron fraud case than other people who worked at the company at that time.
@@ -15,27 +39,44 @@ I define a POI to be someone who might be worth further investigation, because h
 One feature that these predictions will be based on, is the label `poi`, that marks people as `1` (= POI) or `0` (non-POI). This feature was created by Katie Malone when she manually gathered data online about the fraud case. (Source: http://usatoday30.usatoday.com/money/industries/energy/2005-12-28-enron-participants_x.htm)
 `poi` will allow me to train a classifier to recognize patterns that POIs might share, and therefore represents a key feature for the analysis. Of the **146** data points available in the initial dataset, **18** are labeled as POI. This represents a highly imbalanced dataset, which I will be addressing later on.
 
+<div id='outlier-removal'/>
 ## Outlier Removal
-
 When analyzing my dataset for outliers, I identified one row called `TOTAL`. This was most probably simply the total of all the money a person received or spent. This should therefore be removed from the dataset.
 
 I had some trouble when trying to find the `max()` value of the columns I had plotted. My code only returned `NaN` as the max. After a while I figured that this is because the `'NaN'` values were actually **strings**, not `None` type. So I went ahead to transform them into actual `NaN`, to finally find and remove the row containing the outlier.
 
 Further, I also removed by hand a row called `THE TRAVEL AGENCY IN THE PARK`, that was a bogus firm that some of the people involved in the fraud were using for booking travel costs. I've found out about this data point through inspecting the `enron61702insiderpay.pdf` file manually.
 
-## Overfitting an imbalanced dataset
+<div id='imbalanced-dataset'/>
+## Dealing with an imbalanced dataset
 As gleaned from the investigation above, the dataset is highly imbalanced. There are initially only 18 POI and after outlier removal 126 non-POI. This comes to a ratio of 1:7 in favor of non-POI.
 
-Because it is difficult to gain valuable results from such an imbalanced dataset, the underrepresented sample needs to be **overfitted**. To this end I duplicated the POI rows and shuffled the dataset, so that there would not be a problem when later splitting the data into training and testing samples.
+There are some different ways to handling such an imbalanced dataset, two of which I investigated more closely:
 
+<div id='overfitting'/>
+### overfitting
+For a small dataset with such a high ratio, **overfitting** the underrepresented sample is often a good choice. 
+However, there are some potential problems that might bring misleading results, when overfitting _at the wrong time_. Initially I had made this mistake to overfit before doing cross-validation. I duplicated the POI rows at the beginning, then shuffled the dataset. I was thinking that like this there would not be a problem when splitting the data into training and testing samples later on.
+
+However, this actually leads to a large and illegitimate increase in performance metrics through data leakage. The section _OVERSAMPLING THE MINORITY CLASS_ in [this document](http://www.marcoaltini.com/blog/dealing-with-imbalanced-data-undersampling-oversampling-and-proper-cross-validation) explains the problem thoroughly.
+
+To avoid exact copies of those that are being trained on to enter the test set, oversampling has to be performed **after cross-validation**.
+
+<div id='class-weights'/>
+### class weights
+Another option to deal with the problem of an imbalanced dataset, is to adjust the **class weights** accordingly.
+
+<div id='features'/>
 ## Features
 
 Before diving into further analysis, I removed the column `email_address`. It contained unique strings for each person and therefore won't have any predictive power.
 
+<div id='new-feature'/>
 ### A new feature
 Wondering about the **ratio** of emails sent to a poi vs. received from a poi, as mentioned in the course, made me create this new feature: `sent_received_ratio`.
 The idea behind this feature was, that POIs might be more likely to send a higher amount fo emails among each other than towards non-POIs.
 
+<div id='selecting-features'/>
 ### Selecting features
 Then, for choosing the features for the analysis, I used an overfit Decision Tree from which I calculated the feature importances.
 
@@ -57,6 +98,7 @@ Therefore my **final set of 4 features** was:
 The **new feature** I had generated earlier fared not too well in the feature importance test, yielding with 0.0160556220096 not much predictive power over 100 runs. Therefore I did not include it in the final analysis.
 
 
+<div id='algorithm-choice'/>
 ## Choice of Algorithm
 To test the performance of various classifiers, I wrote a test suite called `test_a_lot()`. The wrapper function ran tests for **Naive Bayes**, **SVM**s, **Decision Trees** and **K-nearest Neighbors**.
 
@@ -69,6 +111,7 @@ Some of the classifiers I employed returned very low scores for precision and re
 
 The two classifiers that yielded better F1-scores were taken forward. Both **Decision Trees** and **KNN** might have potential for improvement through parameter tuning.
 
+<div id='classifier-tuning'/>
 ## Tuning the Classifier
 Parameter tuning is important for Machine Learning, because different settings can yield quite different results. The performance of the classifiers can differ wildly, and only an optimum balance of tuned parameters will bring the best results.
 
@@ -96,6 +139,7 @@ While both algorithms performed similarly well in _recall_, the Decision Trees r
 
 This is a great example to illustrate how important parameter tuning can be in Machine Learning. Without attempting to tune the KNN algorithm, my choice would have fallen on Decision Trees and I might have ended up flagging three times more people wrongly as POI than with employing the tuned KNN.
 
+<div id='validation'/>
 ## Validation
 It is important to **avoid overfitting** the learning algorithm with the data provided. This would happen when learning and testing the the parameters of a function on the same data.
 
@@ -104,6 +148,7 @@ To avoid this mistake, I used **cross validation**. This means that a part of th
 For this I was using the scikit-learn `sklearn.cross_validation.train_test_split()` helper function. My choice fell on retaining 30% of the data aside for testing purposes. The `random_state` variable was set to 42, to allow consistent results and make it possible for other to check my work.
 
 
+<div id='evaluation'/>
 ## Evaluation Method
 Evaluating the results is an extremely important aspect of Machine Learning. I will try to make this clear using this example situation. When I was building my analysis functions, I initially calculated only **accuracy**. Accuracy of the classifiers can however differ sometimes very much from other, more useful evaluation metrics, such as **precision** and **recall**.
 Taking a look at the **confusion matrix** for the classifier in my output shows, that sometimes not a single True Positive had been identified, however the _accuracy_ of the classifier would still be very high.
@@ -122,20 +167,18 @@ The **F1-score** can be seen as a weighted average of precision and recall, bala
 For the sake of _guilty until proven different_ I would consider **precision** as the more important metric in this analysis, however I primarily decided to focus on achieving a high F1-score. In the final decision for which algorithm to use, I kept in mind to value precision higher than recall.
 
 
+<div id='discussion'/>
 ## Discussion
+<div id='missing-values'/>
 ### Handling missing Values
-I was not able to run the classifiers with the `NaN` missing values in my data. I could think of two different ways of working around this issue:
+I was not able to run the classifiers with the `NaN` missing values in my data. I came up with two different ways of working around this issue, and applied them on different parts of the data:
 
-1. Replacing all the missing `NaN`s in all features with the **median** of the respective feature
-2. Removing all the rows that include at least one `NaN` in any feature column
 
-#### Replacing NaN with the median
-My reasoning for this was, that a row containing e.g. one `NaN` in one of the features might have a very good predictive effect. Therefore when it gets removed, this information is lost.
-Replacing the `NaN` with the median allows the row to remain part of the analysis and potentially increase the accuracy of the prediction.
+1. Removing all the rows that include at least one `NaN` in any feature column
+2. Replacing all the missing `NaN`s in all features with the **median** of the respective feature
+3. Replacing all the mising `NaN`s with `0`
 
-I decided for the **median** over the mean, because **outliers** are present and important to the data and the prediction. They represent the already identified pois, who are essential for our prediction.
-When using the mean on the now-empty values, these outliers would severly alter the distribution. Therefore I chose the median, as it is resisting outlier-influence.
-
+<div id='removing'/>
 #### Removing all rows containing NaN
 Intuitively, this feels like a nice way to approach the issue, since I would prefer to deduce my predictions from _actual complete data_. The larger amount of data entering the algorithms, the better. And incomplete instances might skew the predictions and are therfore rather removed.
 
@@ -143,6 +186,23 @@ However, _the more data the better_ has of course also this other aspect. Removi
 
 This is clearly a problem because it might exclude people that could be POIs or simply reduce the predictive power of the analysis.
 
+<div id='median'/>
+#### Replacing NaN with the median
+My reasoning for this was, that a row containing e.g. one `NaN` in one of the features might have a very good predictive effect. Therefore when it gets removed, this information is lost.
+Replacing the `NaN` with the median allows the row to remain part of the analysis and potentially increase the accuracy of the prediction.
+
+I would choose the **median** rather than the mean, because **outliers** are present and important to the data and the prediction. They might represent the already identified POI, who are essential for our prediction.
+When using the mean on the now-empty values, these outliers would severly alter the distribution. Therefore I chose the median, as it is resisting outlier-influence.
+
+During my analysis I imputed the median values for the **email-corpus data**. For the email data I am certain that I do not have all the existing data available. Therefore it would be misleading to substitute missing values with `0`, because this would imply e.g. that no email was sent. However, I simply _do not know_ whether an email was sent or not.
+
+<div id='zero'/>
+#### Replacing NaN with 0
+With a similar reasoning as for imputing the median, replacing missing values with `0` can make sense when it is likely that 0 values were recorded as `NaN`.
+
+In this project this is the case with the **financial data**. Looking at the [resource document](enron61702insiderpay.pdf) it becomes obvious that the columns are _summed up to a total_ - even though some people show `- ` (= `NaN`) for the respective row entries. Therefore it is reasonable to assume that "missing values" here actually stand for `0`.
+
+<div id='performance'/>
 ### Algorithm Performance
 
 The tuned K-Nearest-Neighbor algorithm that I ended up using for my final analysis was trained on the training set that was initially split using CrossValidation. 30% of the data were kept aside for testing purposes. The results from the tests on the testing portion of the dataset were:
@@ -168,7 +228,9 @@ The values are quite high which means that the algorithm performs well in predic
 This is not exactly in line with what I consider more important in this case. However, both scores are still rather high in this tuned setting so I think that it is still okay.
 
 
+<div id='resources'/>
 ## Resources
+<div id='python'/>
 ### python
 - http://stackoverflow.com/questions/18837607/remove-multiple-items-from-list-in-python
 - http://stackoverflow.com/questions/18172851/deleting-dataframe-row-in-pandas-based-on-column-value
@@ -176,7 +238,10 @@ This is not exactly in line with what I consider more important in this case. Ho
 - http://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.dropna.html
 - http://stackoverflow.com/questions/15772009/shuffling-permutating-a-dataframe-in-pandas
 - http://stackoverflow.com/questions/24029659/python-pandas-replicate-rows-in-dataframe
+- http://stackoverflow.com/questions/11948245/markdown-to-create-pages-and-table-of-contents
+- https://docs.python.org/2/tutorial/controlflow.html#unpacking-argument-lists
 
+<div id='ml'/>
 ### machine learning
 - https://discussions.udacity.com/t/does-imputation-of-missing-features-cause-data-leakage/39739/2
 - https://discussions.udacity.com/t/mistake-in-the-way-email-poi-features-are-engineered-in-the-course/4841/9
@@ -186,3 +251,4 @@ This is not exactly in line with what I consider more important in this case. Ho
 - http://scikit-learn.org/stable/modules/cross_validation.html
 - http://machinelearningmastery.com/tactics-to-combat-imbalanced-classes-in-your-machine-learning-dataset/
 - https://www.quora.com/In-classification-how-do-you-handle-an-unbalanced-training-set
+- http://www.marcoaltini.com/blog/dealing-with-imbalanced-data-undersampling-oversampling-and-proper-cross-validation
