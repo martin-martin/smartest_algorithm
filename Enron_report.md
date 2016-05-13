@@ -252,3 +252,4 @@ This is not exactly in line with what I consider more important in this case. Ho
 - http://machinelearningmastery.com/tactics-to-combat-imbalanced-classes-in-your-machine-learning-dataset/
 - https://www.quora.com/In-classification-how-do-you-handle-an-unbalanced-training-set
 - http://www.marcoaltini.com/blog/dealing-with-imbalanced-data-undersampling-oversampling-and-proper-cross-validation
+- http://stackoverflow.com/questions/29139116/what-is-class-weight-parameter-does-in-scikit-learn-sgd
